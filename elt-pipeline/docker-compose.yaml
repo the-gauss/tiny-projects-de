@@ -1,0 +1,15 @@
+version: 3
+
+services:
+  source_postgres:
+    image: postgres:latest
+    ports:
+      - "5433:5432"
+    networks:
+      - elt_network
+    environment:
+      - POSTGRES_DB: ${SRC_DB_NAME}
+      - POSTGRES_USER: ${SRC_DB_USER}
+      - POSTGRES_PASSWORD: ${SRC_DB_PASS}
+    volumes:
+      - :containerPath:ro

@@ -1,57 +1,89 @@
-# Prerequisites
-*.d
-.vscode
+# Python bytecode / cache
+__pycache__/
+*.py[cod]
+*$py.class
 
-# Object files
-*.o
-*.ko
-*.obj
-*.elf
+# Python environments
+.venv/
+venv/
+env/
+.env
+.env.*
+*.env
+pip-wheel-metadata/
+pip-log.txt
 
-# Linker output
-*.ilk
-*.map
-*.exp
+# Packaging / build artifacts
+build/
+dist/
+.eggs/
+*.egg-info/
+*.manifest
+*.spec
 
-# Precompiled Headers
-*.gch
-*.pch
+# Test & coverage artifacts
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.mypy_cache/
+.tox/
+.nox/
+.hypothesis/
+.cache/
 
-# Libraries
-*.lib
-*.a
-*.la
-*.lo
+# Notebooks
+.ipynb_checkpoints
+.ipython/
+.jupyter/
 
-# Shared objects (inc. Windows DLLs)
-*.dll
-*.so
-*.so.*
-*.dylib
+# Logs & temp files
+logs/
+*.log
+tmp/
+temp/
+*.tmp
 
-# Executables
-*.exe
-*.out
-*.app
-*.i*86
-*.x86_64
-*.hex
+# Data dumps & staged datasets
+data/
+datasets/
+*.csv
+*.tsv
+*.jsonl
+*.parquet
+*.avro
+*.db
+*.sqlite*
+*.hdf5
 
-# Debug files
-*.dSYM/
-*.su
-*.idb
-*.pdb
+# dbt outputs
+target/
+dbt_modules/
+logs/dbt.log
 
-# Kernel Module Compile Results
-*.mod*
-*.cmd
-.tmp_versions/
-modules.order
-Module.symvers
-Mkfile.old
-dkms.conf
+# Airbyte artifacts
+.airbyte/
+.airbyte_local/
+airbyte_workspace/
 
-# Project Files
-/modern-c-examples
-.vscode/settings.json
+# Spark local state
+spark-warehouse/
+metastore_db/
+derby.log
+
+# Docker / Compose
+docker-data/
+docker-compose.override.yml
+*.pid
+
+# IDE / Editor files
+.vscode/
+.idea/
+*.code-workspace
+
+# OS junk
+.DS_Store
+Thumbs.db
+
+# Personal Stuff
+progress-tracker.md
