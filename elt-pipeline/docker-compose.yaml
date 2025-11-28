@@ -1,37 +1,38 @@
-version: 3
+version: '3'
 
 services:
   source_postgres:
-    image: postgres:latest
+    image: postgres:15
     ports:
       - "5433:5432"
     networks:
       - elt_network
     environment:
-      - POSTGRES_DB: ${SRC_DB_NAME}
-      - POSTGRES_USER: ${SRC_DB_USER}
-      - POSTGRES_PASSWORD: ${SRC_DB_PASS}
+      POSTGRES_DB: ${SRC_DB_NAME}
+      POSTGRES_USER: ${SRC_DB_USER}
+      POSTGRES_PASSWORD: ${SRC_DB_PASS}
     # The volumes key can either contain the storage (the actual db) or a script. Postgres image is designed
     # to run the `/docker-entrypoint-initdb.d/init.sql` script iff the database is empty.
     volumes:
       - ./source_db_init/init.sql:/docker-entrypoint-initdb.d/init.sql
   
   destination_postgres:
-    image: postgres:latest
+    image: postgres:15
     ports:
       - "5434:5432"
     networks:
       - elt_network
     environment:
-      - POSTGRES_DB: ${DEST_DB_NAME}
-      - POSTGRES_USER: ${DEST_DB_USER}
-      - POSTGRES_PASSWORD: ${DEST_DB_PASS}
+      POSTGRES_DB: ${DEST_DB_NAME}
+      POSTGRES_USER: ${DEST_DB_USER}
+      POSTGRES_PASSWORD: ${DEST_DB_PASS}
   
   elt_script:
     build:
-      context: ./elt
-      dockerfile: Dockerfile
-    command: ['python', 'elt_script.py']
+      context: ./
+      dockerfile: elt/Dockerfile
+    env_file:
+      - .env
     networks:
       - elt_network
     depends_on:
