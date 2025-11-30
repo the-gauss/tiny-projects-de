@@ -15,7 +15,8 @@ services:
     # to run the `/docker-entrypoint-initdb.d/init.sql` script iff the database is empty.
     volumes:
       - ./source_db_init/init.sql:/docker-entrypoint-initdb.d/init.sql
-  
+      # Use volumes when you want to persist data between container restarts and enable file sharing between host and container. 
+
   destination_postgres:
     image: postgres:15
     ports:
@@ -26,10 +27,11 @@ services:
       POSTGRES_DB: ${DEST_DB_NAME}
       POSTGRES_USER: ${DEST_DB_USER}
       POSTGRES_PASSWORD: ${DEST_DB_PASS}
+    # We didn't need volumes here since we don't need to initialize the destination DB with any script or persist data. It is created empty.
   
   elt_script:
     build:
-      context: ./
+      context: ./ # Defines the build context, i.e., the root directory for the build. The COPY and ADD instructions in the Dockerfile are relative to this path.
       dockerfile: elt/Dockerfile
     env_file:
       - .env
@@ -38,7 +40,8 @@ services:
     depends_on:
       - source_postgres
       - destination_postgres
+    # We didn't need volumes here since the script is run once when the container starts and doesn't need to persist any data. It only need code, which is already baked into the image.
 
 networks:
   elt_network:
-    driver: bridge
+    driver: bridge  # Other values are 'host', 'overlay', etc. Use 'host' for no isolation between host and container. Use 'bridge' for isolated networks. Use 'overlay' for multi-host networking (Docker Swarm).
