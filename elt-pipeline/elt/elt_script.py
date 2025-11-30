@@ -1,9 +1,6 @@
 import subprocess
-from dotenv import load_dotenv
 import os
 import time
-
-load_dotenv()
 
 def wait_for_postgres(host, max_retries=5, delay_seconds=5):
     """Wait for PostgreSQL to become available."""
