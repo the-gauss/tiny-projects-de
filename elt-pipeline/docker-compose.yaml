@@ -16,6 +16,9 @@ services:
     volumes:
       - ./source_db_init/init.sql:/docker-entrypoint-initdb.d/init.sql
       # Use volumes when you want to persist data between container restarts and enable file sharing between host and container. 
+      # In the current form, there is no persistence of the database data. If you restart the container, the data will be lost unless you use a volume for the Postgres data directory.
+      # For actual data persistence, you could use a named volume like:
+      # - pgdata_source:/var/lib/postgresql/data and then define it under a volumes: key at the bottom of this file.
 
   destination_postgres:
     image: postgres:15
@@ -45,3 +48,6 @@ services:
 networks:
   elt_network:
     driver: bridge  # Other values are 'host', 'overlay', etc. Use 'host' for no isolation between host and container. Use 'bridge' for isolated networks. Use 'overlay' for multi-host networking (Docker Swarm).
+
+#volumes:
+#  pgdata_source: (the named volume for source Postgres data persistence would be defined here)
