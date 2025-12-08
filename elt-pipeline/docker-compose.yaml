@@ -62,6 +62,11 @@ services:
       - ~/.dbt:/root  
     depends_on:
       - elt_script  # dbt assumes that the ELT script has already run and the data is in the destination Postgres.
+    environment:
+      DBT_PROFILE=${DBT_PROFILE}
+      DBT_TARGET=${DBT_TARGET}
+      # Did not use env_file here becuase unlike Python scripts, dbt does not automatically read from .env files. Instead, we pass the necessary environment variables directly.
+      
 
 networks:
   elt_network:
