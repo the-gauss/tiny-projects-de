@@ -58,7 +58,7 @@ services:
     networks:
       - elt_network
     volumes:
-      - ./custom-postgres:/dbt
+      - ./custom_postgres:/dbt
       - ~/.dbt:/root  
     depends_on:
       - elt_script  # dbt assumes that the ELT script has already run and the data is in the destination Postgres.
