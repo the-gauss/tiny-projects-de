@@ -1,0 +1,1 @@
+SELECT * FROM {{ source('dest_db', 'actors') }};
