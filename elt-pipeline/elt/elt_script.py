@@ -73,10 +73,10 @@ subprocess.run(dump_command, env=subprocess_env, check=True)
 # Use psql to load the dumped SQL file into the destination database
 load_command = [
     'psql',
-    '-h', destination_config['host'],
-    '-U', destination_config['user'],
-    '-d', destination_config['dbname'],
-    '-a', '-f', 'data_dump.sql',
+    '-h', destination_config['host'], # Hostname of the destination DB
+    '-U', destination_config['user'],   # Username for the destination DB
+    '-d', destination_config['dbname'], # Database name for the destination DB
+    '-a', '-f', 'data_dump.sql', # -a is for echoing all input from the file, -f specifies the file to execute
 ]
 
 # Set the PGPASSWORD environment variable for the destination database

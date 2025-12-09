@@ -1,9 +1,9 @@
 version: 2
-
+# sources.yml includes external/raw data sources that dbt will reference (e.g. what our ELT script loads into the destination Postgres database). dbt does not "create" these sources; they are expected to already exist in the database.
 sources:
   - name: destination_db
     description: "Raw data from the destination PostgreSQL database."
-    database: destination_db
+    database: "{{ env_var('DEST_DB_NAME') }}"
     schema: public
     tables:
       - name: films

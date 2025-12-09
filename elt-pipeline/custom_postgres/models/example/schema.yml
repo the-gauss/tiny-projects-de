@@ -1,5 +1,5 @@
 version: 2
-
+# schema.yml defines tests and documentation for the models defined in this directory. This includes schema for all our models.
 models:
   - name: films
     description: "This table contains details about films."
