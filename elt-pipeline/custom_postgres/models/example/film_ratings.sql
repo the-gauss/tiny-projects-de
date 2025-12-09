@@ -13,7 +13,7 @@ WITH film_with_ratings AS (
             WHEN user_rating >= 1 THEN 'Poor'
             ELSE 'No Rating'
         END as rating_category
-    FROM {{ ref('films') }} fwr
+    FROM {{ ref('films') }}
 ),
 
 films_with_actors AS (
