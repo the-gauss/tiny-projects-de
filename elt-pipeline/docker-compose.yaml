@@ -1,5 +1,3 @@
-version: '3'
-
 services:
   source_postgres:
     image: postgres:15
@@ -51,7 +49,7 @@ services:
     # We didn't need volumes here since the script is run once when the container starts and doesn't need to persist any data. It only need code, which is already baked into the image.
 
   dbt:
-    image: ghcr.io/dbt-labs/dbt-postgres
+    image: ghcr.io/dbt-labs/dbt-postgres:latest
     command: [  # When a container starts, it runs the CMD specified in its Dockerfile. Here we override that command to run dbt commands instead.
       'run',  # We use specific commands because the default command in the dbt image is just 'dbt', which would start an interactive shell.
       # dbt run compiles models/*.sql and runs them against the destination database (or DWH). It creates tables/views (based on `materialized` in `dbt_project.yml`) as per the model definitions.
@@ -68,8 +66,8 @@ services:
     depends_on:
       - elt_script  # dbt assumes that the ELT script has already run and the data is in the destination Postgres.
     environment:
-      DBT_PROFILE=${DBT_PROFILE}
-      DBT_TARGET=${DBT_TARGET}
+      DBT_PROFILE: ${DBT_PROFILE}
+      DBT_TARGET: ${DBT_TARGET}
       # Did not use env_file here becuase unlike Python scripts, dbt does not automatically read from .env files. Instead, we pass the necessary environment variables directly.
       
 
