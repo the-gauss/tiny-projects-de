@@ -57,6 +57,9 @@ destination_config = {
 # Use pg_dump to dump the source database to a SQL file
 dump_command = [
     'pg_dump',
+    '--clean',          # this ensures that DROP TABLE statements are included
+                        # always make sure every ELT step you plan to re-run is idempotent (i.e., can be run multiple times without causing errors or unintended effects)
+    '--if-exists',      # tables were being duplicated without this, causing "table already exists" errors
     '-h', source_config['host'],
     '-U', source_config['user'],
     '-d', source_config['dbname'],
