@@ -49,22 +49,34 @@ services:
     # We didn't need volumes here since the script is run once when the container starts and doesn't need to persist any data. It only need code, which is already baked into the image.
 
   dbt:
-    image: ghcr.io/dbt-labs/dbt-postgres:latest
-    command: [  # When a container starts, it runs the CMD specified in its Dockerfile. Here we override that command to run dbt commands instead.
-      'run',  # We use specific commands because the default command in the dbt image is just 'dbt', which would start an interactive shell.
-      # dbt run compiles models/*.sql and runs them against the destination database (or DWH). It creates tables/views (based on `materialized` in `dbt_project.yml`) as per the model definitions.
-      '--profiles-dir',
-      '/root',  # We have specified this to be the profiles directory, and mapped the host's ~/.dbt to /root in the volumes section below; this is where it finds the profiles.yml file.
-      '--project-dir',  # Again, we specify the project directory where the dbt_project.yml file is located.
-      '/dbt'
+    # image: ghcr.io/dbt-labs/dbt-postgres:latest
+    # command: [  # When a container starts, it runs the CMD specified in its Dockerfile. Here we override that command to run dbt commands instead.
+    #   'run',  # We use specific commands because the default command in the dbt image is just 'dbt', which would start an interactive shell. This is set through the ENTRYPOINT in the Dockerfile of the dbt image.
+    #   # dbt run compiles models/*.sql and runs them against the destination database (or DWH). It creates tables/views (based on `materialized` in `dbt_project.yml`) as per the model definitions.
+    #   '--profiles-dir',
+    #   '/root',  # We have specified this to be the profiles directory, and mapped the host's ~/.dbt to /root in the volumes section below; this is where it finds the profiles.yml file.
+    #   '--project-dir',  # Again, we specify the project directory where the dbt_project.yml file is located.
+    #   '/dbt'
+    # image did not work on macOS due to some architecture issues (M1/M2/M3 chips). Hence, we build a custom image instead.
+    build:
+      context: .
+      dockerfile: custom_postgres/Dockerfile.dbt
+    command: [
+      "run",
+      "--profiles-dir",
+      "/root/.dbt",
+      "--project-dir",
+      "/dbt"
     ]
     networks:
       - elt_network
     volumes:
       - ./custom_postgres:/dbt
-      - ~/.dbt:/root  
+      - ~/.dbt:/root/.dbt
     depends_on:
       - elt_script  # dbt assumes that the ELT script has already run and the data is in the destination Postgres.
+    env_file:
+      - .env
     environment:
       DBT_PROFILE: ${DBT_PROFILE}
       DBT_TARGET: ${DBT_TARGET}

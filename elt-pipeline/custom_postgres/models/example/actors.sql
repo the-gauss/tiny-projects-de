@@ -1,1 +1,1 @@
-SELECT * FROM {{ source('destination_db', 'actors') }};
+SELECT * FROM {{ source('destination_db', 'actors') }}

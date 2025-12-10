@@ -59,4 +59,4 @@ SELECT
 FROM film_with_ratings fwr
 LEFT JOIN actor_stats ast ON fwr.film_id = ast.film_id
 LEFT JOIN actor_film_ratings afr ON fwr.film_id = afr.film_id
-LEFT JOIN films_with_actors fwa ON fwr.film_id = fwa.film_id;
+LEFT JOIN films_with_actors fwa ON fwr.film_id = fwa.film_id
