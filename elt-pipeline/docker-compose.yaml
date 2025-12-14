@@ -6,7 +6,7 @@ services:
     networks:
       - elt_network
     environment:
-      POSTGRES_DB: ${SRC_DB_NAME}
+      POSTGRES_DB: ${SRC_DB_NAME}   # docker-compose.yml automatically reads the .env placed in the same directory for environment variables. This happens before any service starts.
       POSTGRES_USER: ${SRC_DB_USER}
       POSTGRES_PASSWORD: ${SRC_DB_PASS}
     # The volumes key can either contain the storage (the actual db) or a script. Postgres image is designed
@@ -32,12 +32,40 @@ services:
 
     # source_postgres and destination_postgres have no depends_on, so they start first. 
     # The elt_script service depends on both of them to ensure they are up before it runs.
-    # The dbt service depends on elt_script to ensure the ELT process is complete before dbt runs; and this dbt starts last (so far).
+    # The dbt service depends on elt_script to ensure the ELT process starts before dbt runs; and thus dbt starts last (so far).
     # Use the depends_on key to control startup order of services.
   
+  airflow_postgres:
+    image: postgres:latest
+    networks:
+      - elt_network
+    environment:
+      - POSTGRES_DB: ${AIRFLOW_DB_NAME} 
+      - POSTGRES_PASSWORD: ${AIRFLOW_DB_PASSWORD}
+      - POSTGRES_USER: ${AIRFLOW_DB_USER}
+  
+  init-airflow:
+    image: apache/airflow:latest
+    depends_on:
+      - airflow_postgres
+    networks:
+      - elt_network
+    environment:
+      - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=${AIRFLOW__DATABASE__SQL_ALCHEMY_CONN}
+    command: >
+      bash -c "airflow db init && \
+               airflow users create --username ${AIRFLOW_USER} --firstname Kartik --lastname Kumar --role Admin --email something@example.com"
+
+  airflow-webserver:
+    build:
+      context: .
+      dockerfile: Dockerfile.airflow
+
   elt_script:
     build:
-      context: ./ # Defines the build context, i.e., the root directory for the build. The COPY and ADD instructions in the Dockerfile are relative to this path.
+      context: ./ # Defines the build context, i.e., the root directory for the build. The COPY and ADD instructions in the Dockerfile are relative to this path. This path is resolved relative to the location of the docker-compose.yaml file.
+      # Usually, we set the minimal context necessary for the container to run, to avoid sending unnecessary/sensitive files to the Docker daemon during build.
+      # Here, the Dockerfile needs to COPY files (e.g., uv.lock etc.) from top level directory, so we set context to ./ (current directory where docker-compose.yaml is located).
       dockerfile: elt/Dockerfile
     env_file:
       - .env
@@ -75,12 +103,11 @@ services:
       - ~/.dbt:/root/.dbt
     depends_on:
       - elt_script  # dbt assumes that the ELT script has already run and the data is in the destination Postgres.
-    env_file:
-      - .env
     environment:
       DBT_PROFILE: ${DBT_PROFILE}
       DBT_TARGET: ${DBT_TARGET}
-      # Did not use env_file here becuase unlike Python scripts, dbt does not automatically read from .env files. Instead, we pass the necessary environment variables directly.
+      # We pass the necessary environment variables directly, instead of using env_file, because this service only needs these two.
+      # There is nothing wrong with using env_file here, but it is cleaner to only pass what is needed.
       
 
 networks:
