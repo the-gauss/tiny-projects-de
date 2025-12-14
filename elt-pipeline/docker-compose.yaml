@@ -10,7 +10,7 @@ services:
       POSTGRES_USER: ${SRC_DB_USER}
       POSTGRES_PASSWORD: ${SRC_DB_PASS}
     # The volumes key can either contain the storage (the actual db) or a script. Postgres image is designed
-    # to run the `/docker-entrypoint-initdb.d/init.sql` script iff the database is empty.
+    # to run the `/docker-entrypoint-initdb.d/init.sql` script iff the database is empty. This also handles creating user and DB with the environment variables above.
     volumes:
       - ./source_db_init/init.sql:/docker-entrypoint-initdb.d/init.sql
       # Use volumes when you want to persist data between container restarts and enable file sharing between host and container. 
@@ -25,7 +25,7 @@ services:
     networks:
       - elt_network
     environment:
-      POSTGRES_DB: ${DEST_DB_NAME}
+      POSTGRES_DB: ${DEST_DB_NAME}  
       POSTGRES_USER: ${DEST_DB_USER}
       POSTGRES_PASSWORD: ${DEST_DB_PASS}
     # We didn't need volumes here since we don't need to initialize the destination DB with any script or persist data. It is created empty.
