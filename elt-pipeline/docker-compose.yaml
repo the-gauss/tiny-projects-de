@@ -6,7 +6,7 @@ services:
     networks:
       - elt_network
     environment:
-      POSTGRES_DB: ${SRC_DB_NAME}
+      POSTGRES_DB: ${SRC_DB_NAME}   # docker-compose.yml automatically reads the .env placed in the same directory for environment variables. This happens before any service starts.
       POSTGRES_USER: ${SRC_DB_USER}
       POSTGRES_PASSWORD: ${SRC_DB_PASS}
     # The volumes key can either contain the storage (the actual db) or a script. Postgres image is designed
@@ -32,56 +32,148 @@ services:
 
     # source_postgres and destination_postgres have no depends_on, so they start first. 
     # The elt_script service depends on both of them to ensure they are up before it runs.
-    # The dbt service depends on elt_script to ensure the ELT process is complete before dbt runs; and this dbt starts last (so far).
+    # The dbt service depends on elt_script to ensure the ELT process starts before dbt runs; and thus dbt starts last (so far).
     # Use the depends_on key to control startup order of services.
-  
-  elt_script:
-    build:
-      context: ./ # Defines the build context, i.e., the root directory for the build. The COPY and ADD instructions in the Dockerfile are relative to this path.
-      dockerfile: elt/Dockerfile
-    env_file:
-      - .env
+
+
+  # This is the Postgres DB for Airflow metadata
+  airflow_postgres:
+    image: postgres:latest
     networks:
       - elt_network
-    depends_on:
-      - source_postgres
-      - destination_postgres
-    # We didn't need volumes here since the script is run once when the container starts and doesn't need to persist any data. It only need code, which is already baked into the image.
+    environment:
+      - POSTGRES_DB: ${AIRFLOW_DB_NAME} 
+      - POSTGRES_PASSWORD: ${AIRFLOW_DB_PASSWORD}
+      - POSTGRES_USER: ${AIRFLOW_DB_USER}
 
-  dbt:
-    # image: ghcr.io/dbt-labs/dbt-postgres:latest
-    # command: [  # When a container starts, it runs the CMD specified in its Dockerfile. Here we override that command to run dbt commands instead.
-    #   'run',  # We use specific commands because the default command in the dbt image is just 'dbt', which would start an interactive shell. This is set through the ENTRYPOINT in the Dockerfile of the dbt image.
-    #   # dbt run compiles models/*.sql and runs them against the destination database (or DWH). It creates tables/views (based on `materialized` in `dbt_project.yml`) as per the model definitions.
-    #   '--profiles-dir',
-    #   '/root',  # We have specified this to be the profiles directory, and mapped the host's ~/.dbt to /root in the volumes section below; this is where it finds the profiles.yml file.
-    #   '--project-dir',  # Again, we specify the project directory where the dbt_project.yml file is located.
-    #   '/dbt'
-    # image did not work on macOS due to some architecture issues (M1/M2/M3 chips). Hence, we build a custom image instead.
+  # This service initializes the Airflow DB and creates an Admin user
+  init-airflow:
+    image: apache/airflow:latest
+    depends_on:
+      - airflow_postgres
+    networks:
+      - elt_network
+    environment:
+      - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=${AIRFLOW__DATABASE__SQL_ALCHEMY_CONN}
+    command: >
+      bash -c "airflow db init && \
+               airflow users create --username ${AIRFLOW_USER} --firstname Kartik --lastname Kumar --role Admin --email something@example.com"
+
+
+  # This is the Airflow webserver service. This is where you access the Airflow UI.             
+  airflow-webserver:
     build:
       context: .
-      dockerfile: custom_postgres/Dockerfile.dbt
-    command: [
-      "run",
-      "--profiles-dir",
-      "/root/.dbt",
-      "--project-dir",
-      "/dbt"
-    ]
+      dockerfile: Dockerfile.airflow
+    user: root
+    depends_on:
+      - airflow_postgres
     networks:
       - elt_network
+    extra_hosts:
+      - "host.docker.internal:host-gateway"  # This allows the container to access services running on the host machine using host.docker.internal
     volumes:
-      - ./custom_postgres:/dbt
-      - ~/.dbt:/root/.dbt
+      - ./airflow/dags: /opt/airflow/dags
+      - ./elt: /opt/airflow/elt  # Mount the elt directory to /opt/airflow/elt in the container so that Airflow DAGs can access the ELT scripts if needed.
+      - ./custom_postgres: /opt/dbt
+      - ~/.dbt: /root/.dbt  # Mount the host's ~/.dbt to /root/.dbt in the container so that dbt can access profiles.yml
+      - /var/run/docker.sock: /var/run/docker.sock  # This allows Airflow to communicate with the Docker daemon on the host machine to start other containers if needed.
+    environment: # Here we will put all the variables under Airflow Webserver section in the .env file
+      - LOAD_EX: ${LOAD_EX}
+      - EXECUTOR: ${EXECUTOR}
+      - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: ${AIRFLOW__DATABASE__SQL_ALCHEMY_CONN}
+      - AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW__CORE__FERNET_KEY}
+      - AIRFLOW__WEBSERVER_DEFAULT_USERNAME: ${AIRFLOW__WEBSERVER_DEFAULT_USERNAME}
+      - AIRFLOW__WEBSERVER_DEFAULT_PASSWORD: ${AIRFLOW__WEBSERVER_DEFAULT_PASSWORD}
+      - AIRFLOW__WWW_USER_USERNAME: ${AIRFLOW__WWW_USER_USERNAME}
+      - AIRFLOW__WWW_USER_PASSWORD: ${AIRFLOW__WWW_USER_PASSWORD}
+      - AIRFLOW__WEBSERVER_SECRET_KEY: ${AIRFLOW__WEBSERVER_SECRET_KEY}
+    ports:
+      - "8080:8080"  # Map port 8080 of the host to port 8080 of the container to access Airflow UI
+    command: webserver
+
+
+# This is the Airflow scheduler service. It monitors tasks and DAGs, triggering task instances once their dependencies are complete.
+  airflow-scheduler:
+    build:
+      context: .
+      dockerfile: airflow/Dockerfile.airflow
+    user: root
     depends_on:
-      - elt_script  # dbt assumes that the ELT script has already run and the data is in the destination Postgres.
-    env_file:
-      - .env
-    environment:
-      DBT_PROFILE: ${DBT_PROFILE}
-      DBT_TARGET: ${DBT_TARGET}
-      # Did not use env_file here becuase unlike Python scripts, dbt does not automatically read from .env files. Instead, we pass the necessary environment variables directly.
-      
+      - airflow_postgres
+    networks:
+      - elt_network
+    extra_hosts:
+      - "host.docker.internal:host-gateway"  # This allows the container to access services running on the host machine using host.docker.internal
+    volumes:
+      - ./airflow/dags: /opt/airflow/dags
+      - ./elt: /opt/airflow/elt  # Mount the elt directory to /opt/airflow/elt in the container so that Airflow DAGs can access the ELT scripts if needed.
+      - ./custom_postgres: /opt/dbt
+      - ~/.dbt: /root/.dbt  # Mount the host's ~/.dbt to /root/.dbt in the container so that dbt can access profiles.yml
+      - /var/run/docker.sock: /var/run/docker.sock  # This allows Airflow to communicate with the Docker daemon on the host machine to start other containers if needed.
+    environment: # Here we will put all the variables under Airflow Webserver section in the .env file
+      - LOAD_EX: ${LOAD_EX}
+      - EXECUTOR: ${EXECUTOR}
+      - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: ${AIRFLOW__DATABASE__SQL_ALCHEMY_CONN}
+      - AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW__CORE__FERNET_KEY}
+      - AIRFLOW__WEBSERVER_DEFAULT_USERNAME: ${AIRFLOW__WEBSERVER_DEFAULT_USERNAME}
+      - AIRFLOW__WEBSERVER_DEFAULT_PASSWORD: ${AIRFLOW__WEBSERVER_DEFAULT_PASSWORD}
+      - AIRFLOW__WWW_USER_USERNAME: ${AIRFLOW__WWW_USER_USERNAME}
+      - AIRFLOW__WWW_USER_PASSWORD: ${AIRFLOW__WWW_USER_PASSWORD}
+      - AIRFLOW__WEBSERVER_SECRET_KEY: ${AIRFLOW__WEBSERVER_SECRET_KEY}
+    ports:
+      - "8080:8080"  # Map port 8080 of the host to port 8080 of the container to access Airflow UI
+    command: scheduler
+
+# We do not need the following services when using Airflow to orchestrate the ELT process. These were in use when we were running the ELT and dbt steps manually without Airflow.
+  # elt_script:
+  #   build:
+  #     context: ./ # Defines the build context, i.e., the root directory for the build. The COPY and ADD instructions in the Dockerfile are relative to this path. This path is resolved relative to the location of the docker-compose.yaml file.
+  #     # Usually, we set the minimal context necessary for the container to run, to avoid sending unnecessary/sensitive files to the Docker daemon during build.
+  #     # Here, the Dockerfile needs to COPY files (e.g., uv.lock etc.) from top level directory, so we set context to ./ (current directory where docker-compose.yaml is located).
+  #     dockerfile: elt/Dockerfile
+  #   env_file:
+  #     - .env
+  #   networks:
+  #     - elt_network
+  #   depends_on:
+  #     - source_postgres
+  #     - destination_postgres
+  #   # We didn't need volumes here since the script is run once when the container starts and doesn't need to persist any data. It only need code, which is already baked into the image.
+
+  # dbt:
+  #   # image: ghcr.io/dbt-labs/dbt-postgres:latest
+  #   # command: [  # When a container starts, it runs the CMD specified in its Dockerfile. Here we override that command to run dbt commands instead.
+  #   #   'run',  # We use specific commands because the default command in the dbt image is just 'dbt', which would start an interactive shell. This is set through the ENTRYPOINT in the Dockerfile of the dbt image.
+  #   #   # dbt run compiles models/*.sql and runs them against the destination database (or DWH). It creates tables/views (based on `materialized` in `dbt_project.yml`) as per the model definitions.
+  #   #   '--profiles-dir',
+  #   #   '/root',  # We have specified this to be the profiles directory, and mapped the host's ~/.dbt to /root in the volumes section below; this is where it finds the profiles.yml file.
+  #   #   '--project-dir',  # Again, we specify the project directory where the dbt_project.yml file is located.
+  #   #   '/dbt'
+  #   # image did not work on macOS due to some architecture issues (M1/M2/M3 chips). Hence, we build a custom image instead.
+  #   build:
+  #     context: .
+  #     dockerfile: custom_postgres/Dockerfile.dbt
+  #   command: [
+  #     "run",
+  #     "--profiles-dir",
+  #     "/root/.dbt",
+  #     "--project-dir",
+  #     "/dbt"
+  #   ]
+  #   networks:
+  #     - elt_network
+  #   volumes:
+  #     - ./custom_postgres:/dbt
+  #     - ~/.dbt:/root/.dbt
+  #   depends_on:
+  #     - elt_script  # dbt assumes that the ELT script has already run and the data is in the destination Postgres.
+  #   environment:
+  #     DBT_PROFILE: ${DBT_PROFILE}
+  #     DBT_TARGET: ${DBT_TARGET}
+  #     # We pass the necessary environment variables directly, instead of using env_file, because this service only needs these two.
+  #     # There is nothing wrong with using env_file here, but it is cleaner to only pass what is needed.
+  #     # The default image name for this service is <project>_<service>, so for this one it becomes elt-pipeline-dbt:latest; we can use docker images command to see the image created.
 
 networks:
   elt_network:
