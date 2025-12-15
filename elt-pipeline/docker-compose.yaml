@@ -97,7 +97,7 @@ services:
   airflow-scheduler:
     build:
       context: .
-      dockerfile: Dockerfile.airflow
+      dockerfile: airflow/Dockerfile.airflow
     user: root
     depends_on:
       - airflow_postgres
@@ -123,57 +123,57 @@ services:
       - AIRFLOW__WEBSERVER_SECRET_KEY: ${AIRFLOW__WEBSERVER_SECRET_KEY}
     ports:
       - "8080:8080"  # Map port 8080 of the host to port 8080 of the container to access Airflow UI
-    command: webserver
+    command: scheduler
 
+# We do not need the following services when using Airflow to orchestrate the ELT process. These were in use when we were running the ELT and dbt steps manually without Airflow.
+  # elt_script:
+  #   build:
+  #     context: ./ # Defines the build context, i.e., the root directory for the build. The COPY and ADD instructions in the Dockerfile are relative to this path. This path is resolved relative to the location of the docker-compose.yaml file.
+  #     # Usually, we set the minimal context necessary for the container to run, to avoid sending unnecessary/sensitive files to the Docker daemon during build.
+  #     # Here, the Dockerfile needs to COPY files (e.g., uv.lock etc.) from top level directory, so we set context to ./ (current directory where docker-compose.yaml is located).
+  #     dockerfile: elt/Dockerfile
+  #   env_file:
+  #     - .env
+  #   networks:
+  #     - elt_network
+  #   depends_on:
+  #     - source_postgres
+  #     - destination_postgres
+  #   # We didn't need volumes here since the script is run once when the container starts and doesn't need to persist any data. It only need code, which is already baked into the image.
 
-  elt_script:
-    build:
-      context: ./ # Defines the build context, i.e., the root directory for the build. The COPY and ADD instructions in the Dockerfile are relative to this path. This path is resolved relative to the location of the docker-compose.yaml file.
-      # Usually, we set the minimal context necessary for the container to run, to avoid sending unnecessary/sensitive files to the Docker daemon during build.
-      # Here, the Dockerfile needs to COPY files (e.g., uv.lock etc.) from top level directory, so we set context to ./ (current directory where docker-compose.yaml is located).
-      dockerfile: elt/Dockerfile
-    env_file:
-      - .env
-    networks:
-      - elt_network
-    depends_on:
-      - source_postgres
-      - destination_postgres
-    # We didn't need volumes here since the script is run once when the container starts and doesn't need to persist any data. It only need code, which is already baked into the image.
-
-  dbt:
-    # image: ghcr.io/dbt-labs/dbt-postgres:latest
-    # command: [  # When a container starts, it runs the CMD specified in its Dockerfile. Here we override that command to run dbt commands instead.
-    #   'run',  # We use specific commands because the default command in the dbt image is just 'dbt', which would start an interactive shell. This is set through the ENTRYPOINT in the Dockerfile of the dbt image.
-    #   # dbt run compiles models/*.sql and runs them against the destination database (or DWH). It creates tables/views (based on `materialized` in `dbt_project.yml`) as per the model definitions.
-    #   '--profiles-dir',
-    #   '/root',  # We have specified this to be the profiles directory, and mapped the host's ~/.dbt to /root in the volumes section below; this is where it finds the profiles.yml file.
-    #   '--project-dir',  # Again, we specify the project directory where the dbt_project.yml file is located.
-    #   '/dbt'
-    # image did not work on macOS due to some architecture issues (M1/M2/M3 chips). Hence, we build a custom image instead.
-    build:
-      context: .
-      dockerfile: custom_postgres/Dockerfile.dbt
-    command: [
-      "run",
-      "--profiles-dir",
-      "/root/.dbt",
-      "--project-dir",
-      "/dbt"
-    ]
-    networks:
-      - elt_network
-    volumes:
-      - ./custom_postgres:/dbt
-      - ~/.dbt:/root/.dbt
-    depends_on:
-      - elt_script  # dbt assumes that the ELT script has already run and the data is in the destination Postgres.
-    environment:
-      DBT_PROFILE: ${DBT_PROFILE}
-      DBT_TARGET: ${DBT_TARGET}
-      # We pass the necessary environment variables directly, instead of using env_file, because this service only needs these two.
-      # There is nothing wrong with using env_file here, but it is cleaner to only pass what is needed.
-      
+  # dbt:
+  #   # image: ghcr.io/dbt-labs/dbt-postgres:latest
+  #   # command: [  # When a container starts, it runs the CMD specified in its Dockerfile. Here we override that command to run dbt commands instead.
+  #   #   'run',  # We use specific commands because the default command in the dbt image is just 'dbt', which would start an interactive shell. This is set through the ENTRYPOINT in the Dockerfile of the dbt image.
+  #   #   # dbt run compiles models/*.sql and runs them against the destination database (or DWH). It creates tables/views (based on `materialized` in `dbt_project.yml`) as per the model definitions.
+  #   #   '--profiles-dir',
+  #   #   '/root',  # We have specified this to be the profiles directory, and mapped the host's ~/.dbt to /root in the volumes section below; this is where it finds the profiles.yml file.
+  #   #   '--project-dir',  # Again, we specify the project directory where the dbt_project.yml file is located.
+  #   #   '/dbt'
+  #   # image did not work on macOS due to some architecture issues (M1/M2/M3 chips). Hence, we build a custom image instead.
+  #   build:
+  #     context: .
+  #     dockerfile: custom_postgres/Dockerfile.dbt
+  #   command: [
+  #     "run",
+  #     "--profiles-dir",
+  #     "/root/.dbt",
+  #     "--project-dir",
+  #     "/dbt"
+  #   ]
+  #   networks:
+  #     - elt_network
+  #   volumes:
+  #     - ./custom_postgres:/dbt
+  #     - ~/.dbt:/root/.dbt
+  #   depends_on:
+  #     - elt_script  # dbt assumes that the ELT script has already run and the data is in the destination Postgres.
+  #   environment:
+  #     DBT_PROFILE: ${DBT_PROFILE}
+  #     DBT_TARGET: ${DBT_TARGET}
+  #     # We pass the necessary environment variables directly, instead of using env_file, because this service only needs these two.
+  #     # There is nothing wrong with using env_file here, but it is cleaner to only pass what is needed.
+  #     # The default image name for this service is <project>_<service>, so for this one it becomes elt-pipeline-dbt:latest; we can use docker images command to see the image created.
 
 networks:
   elt_network:
