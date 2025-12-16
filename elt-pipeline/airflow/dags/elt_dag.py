@@ -1,7 +1,7 @@
 from datetime import datetime, timedelta
 from airflow import DAG
 from docker.types import Mount
-from airflow.operators.python_operator import PythonOperator
+from airflow.operators.python import PythonOperator
 from airflow.operators.bash import BashOperator
 from airflow.providers.docker.operators.docker import DockerOperator
 import subprocess
@@ -55,17 +55,26 @@ t2 = DockerOperator(
     image='elt-pipeline-dbt:latest',  # This should match the image name built from Dockerfile.dbt
     command=[
         'run',
-        '--profiles-dir', 'root/.dbt',  # Path inside the container where profiles.yml is located
+        '--profiles-dir', '/root/.dbt',  # Path inside the container where profiles.yml is located
         '--project-dir', '/dbt',  # Path inside the container where dbt project is located
     ],
-    auto_remove=True,
+    environment={
+        'DEST_DB_NAME': os.getenv('DEST_DB_NAME'),
+        'DEST_DB_USER': os.getenv('DEST_DB_USER'),
+        'DEST_DB_PASS': os.getenv('DEST_DB_PASS'),
+        'DEST_DB_HOST': os.getenv('DEST_DB_HOST', 'destination_postgres'),
+        'DBT_PROFILE': os.getenv('DBT_PROFILE'),
+        'DBT_TARGET': os.getenv('DBT_TARGET'),
+    },
+    auto_remove='success',
     docker_url='unix://var/run/docker.sock',  # Use the Docker socket to run the container
-    network_mode='bridge',  # Use bridge network to allow communication between containers
+    network_mode='elt-pipeline_elt_network',  # Use the project network to allow communication with postgres
+    mount_tmp_dir=False,  # Disable temp mount for Docker-in-Docker compatibility
     mounts=[
         Mount(source='/Users/thory/tiny-projects/tiny-projects-de/elt-pipeline/custom_postgres', # The mounts are the same volume mappings as in docker-compose.yaml for dbt.
-              target='opt/dbt', type='bind'),
+              target='/dbt', type='bind'),  # Must match --project-dir
         Mount(source='/Users/thory/.dbt',
-              target='root/.dbt', type='bind'),
+              target='/root/.dbt', type='bind'),
     ],
     dag=dag,
 )

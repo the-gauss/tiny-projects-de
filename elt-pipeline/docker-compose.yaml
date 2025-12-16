@@ -6,7 +6,7 @@ services:
     networks:
       - elt_network
     environment:
-      POSTGRES_DB: ${SRC_DB_NAME}   # docker-compose.yml automatically reads the .env placed in the same directory for environment variables. This happens before any service starts.
+      POSTGRES_DB: ${SRC_DB_NAME} # docker-compose.yml automatically reads the .env placed in the same directory for environment variables. This happens before any service starts.
       POSTGRES_USER: ${SRC_DB_USER}
       POSTGRES_PASSWORD: ${SRC_DB_PASS}
     # The volumes key can either contain the storage (the actual db) or a script. Postgres image is designed
@@ -25,7 +25,7 @@ services:
     networks:
       - elt_network
     environment:
-      POSTGRES_DB: ${DEST_DB_NAME}  
+      POSTGRES_DB: ${DEST_DB_NAME}
       POSTGRES_USER: ${DEST_DB_USER}
       POSTGRES_PASSWORD: ${DEST_DB_PASS}
     # We didn't need volumes here since we don't need to initialize the destination DB with any script or persist data. It is created empty.
@@ -36,96 +36,192 @@ services:
     # Use the depends_on key to control startup order of services.
 
 
-  # This is the Postgres DB for Airflow metadata
+    # This is the Postgres DB for Airflow metadata
   airflow_postgres:
-    image: postgres:latest
+    image: postgres:16
     networks:
       - elt_network
     environment:
-      - POSTGRES_DB: ${AIRFLOW_DB_NAME} 
-      - POSTGRES_PASSWORD: ${AIRFLOW_DB_PASSWORD}
-      - POSTGRES_USER: ${AIRFLOW_DB_USER}
+      POSTGRES_DB: ${AIRFLOW_DB_NAME}
+      POSTGRES_PASSWORD: ${AIRFLOW_DB_PASSWORD}
+      POSTGRES_USER: ${AIRFLOW_DB_USER}
+    healthcheck:
+      # Check the actual Airflow metadata DB instead of the default (user-named) DB, otherwise pg_isready errors until init creates airflow_db.
+      test: [ "CMD-SHELL", "pg_isready -U ${AIRFLOW_DB_USER} -d ${AIRFLOW_DB_NAME}" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   # This service initializes the Airflow DB and creates an Admin user
   init-airflow:
-    image: apache/airflow:latest
+    build:
+      context: .
+      dockerfile: airflow/Dockerfile
     depends_on:
-      - airflow_postgres
+      airflow_postgres:
+        condition: service_healthy
     networks:
       - elt_network
     environment:
-      - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=${AIRFLOW__DATABASE__SQL_ALCHEMY_CONN}
-    command: >
-      bash -c "airflow db init && \
-               airflow users create --username ${AIRFLOW_USER} --firstname Kartik --lastname Kumar --role Admin --email something@example.com"
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: ${AIRFLOW__DATABASE__SQL_ALCHEMY_CONN}
+      AIRFLOW__CORE__AUTH_MANAGER: airflow.providers.fab.auth_manager.fab_auth_manager.FabAuthManager
+      _AIRFLOW_DB_MIGRATE: "true"
+      _AIRFLOW_WWW_USER_CREATE: "true"
+      _AIRFLOW_WWW_USER_USERNAME: ${AIRFLOW_USER}
+      _AIRFLOW_WWW_USER_PASSWORD: ${AIRFLOW_PASSWORD}
+      _AIRFLOW_WWW_USER_FIRSTNAME: ${AIRFLOW_USER_FIRST_NAME}
+      _AIRFLOW_WWW_USER_LASTNAME: ${AIRFLOW_USER_LAST_NAME}
+      _AIRFLOW_WWW_USER_EMAIL: ${AIRFLOW_USER_EMAIL}
+      AIRFLOW__SCHEDULER__LOG_SERVER_HOST: ${AIRFLOW__SCHEDULER__LOG_SERVER_HOST}
+      AIRFLOW__SCHEDULER__LOG_SERVER_PORT: ${AIRFLOW__SCHEDULER__LOG_SERVER_PORT}
+      AIRFLOW__API_AUTH__JWT_SECRET: ${AIRFLOW__API_AUTH__JWT_SECRET}
 
+    command: version
 
   # This is the Airflow webserver service. This is where you access the Airflow UI.             
   airflow-webserver:
     build:
       context: .
-      dockerfile: Dockerfile.airflow
+      dockerfile: airflow/Dockerfile
     user: root
     depends_on:
-      - airflow_postgres
+      airflow_postgres:
+        condition: service_healthy
+      init-airflow:
+        condition: service_completed_successfully
+    healthcheck:
+      test: [ "CMD", "curl", "--fail", "http://localhost:8080/api/v2/version" ]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
     networks:
       - elt_network
     extra_hosts:
-      - "host.docker.internal:host-gateway"  # This allows the container to access services running on the host machine using host.docker.internal
+      - "host.docker.internal:host-gateway" # This allows the container to access services running on the host machine using host.docker.internal
     volumes:
-      - ./airflow/dags: /opt/airflow/dags
-      - ./elt: /opt/airflow/elt  # Mount the elt directory to /opt/airflow/elt in the container so that Airflow DAGs can access the ELT scripts if needed.
-      - ./custom_postgres: /opt/dbt
-      - ~/.dbt: /root/.dbt  # Mount the host's ~/.dbt to /root/.dbt in the container so that dbt can access profiles.yml
-      - /var/run/docker.sock: /var/run/docker.sock  # This allows Airflow to communicate with the Docker daemon on the host machine to start other containers if needed.
-    environment: # Here we will put all the variables under Airflow Webserver section in the .env file
-      - LOAD_EX: ${LOAD_EX}
-      - EXECUTOR: ${EXECUTOR}
-      - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: ${AIRFLOW__DATABASE__SQL_ALCHEMY_CONN}
-      - AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW__CORE__FERNET_KEY}
-      - AIRFLOW__WEBSERVER_DEFAULT_USERNAME: ${AIRFLOW__WEBSERVER_DEFAULT_USERNAME}
-      - AIRFLOW__WEBSERVER_DEFAULT_PASSWORD: ${AIRFLOW__WEBSERVER_DEFAULT_PASSWORD}
-      - AIRFLOW__WWW_USER_USERNAME: ${AIRFLOW__WWW_USER_USERNAME}
-      - AIRFLOW__WWW_USER_PASSWORD: ${AIRFLOW__WWW_USER_PASSWORD}
-      - AIRFLOW__WEBSERVER_SECRET_KEY: ${AIRFLOW__WEBSERVER_SECRET_KEY}
+      - ./airflow/dags:/opt/airflow/dags
+      - ./airflow/logs:/opt/airflow/logs
+      - ./elt:/opt/airflow/elt # Mount the elt directory to /opt/airflow/elt in the container so that Airflow DAGs can access the ELT scripts if needed.
+      - ./custom_postgres:/opt/dbt
+      - ~/.dbt:/root/.dbt # Mount the host's ~/.dbt to /root/.dbt in the container so that dbt can access profiles.yml
+      - /var/run/docker.sock:/var/run/docker.sock # This allows Airflow to communicate with the Docker daemon on the host machine to start other containers if needed.
+    environment:
+      # Here we will put all the variables under Airflow Webserver section in the .env file
+      LOAD_EX: ${LOAD_EX}
+      EXECUTOR: ${EXECUTOR}
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: ${AIRFLOW__DATABASE__SQL_ALCHEMY_CONN}
+      AIRFLOW__CORE__AUTH_MANAGER: airflow.providers.fab.auth_manager.fab_auth_manager.FabAuthManager
+      AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW__CORE__FERNET_KEY}
+      AIRFLOW__CORE__SECRET_KEY: ${AIRFLOW__CORE__SECRET_KEY}
+      AIRFLOW__API__SECRET_KEY: ${AIRFLOW__API__SECRET_KEY}
+      AIRFLOW__WEBSERVER_DEFAULT_USERNAME: ${AIRFLOW__WEBSERVER_DEFAULT_USERNAME}
+      AIRFLOW__WEBSERVER_DEFAULT_PASSWORD: ${AIRFLOW__WEBSERVER_DEFAULT_PASSWORD}
+      AIRFLOW__WWW_USER_USERNAME: ${AIRFLOW__WWW_USER_USERNAME}
+      AIRFLOW__WWW_USER_PASSWORD: ${AIRFLOW__WWW_USER_PASSWORD}
+      AIRFLOW__WEBSERVER__SECRET_KEY: ${AIRFLOW__WEBSERVER__SECRET_KEY}
+      AIRFLOW__SCHEDULER__LOG_SERVER_HOST: ${AIRFLOW__SCHEDULER__LOG_SERVER_HOST}
+      AIRFLOW__SCHEDULER__LOG_SERVER_PORT: ${AIRFLOW__SCHEDULER__LOG_SERVER_PORT}
+      AIRFLOW__CORE__EXECUTION_API_SERVER_URL: ${AIRFLOW__CORE__EXECUTION_API_SERVER_URL}
+      AIRFLOW__API_AUTH__JWT_SECRET: ${AIRFLOW__API_AUTH__JWT_SECRET}
     ports:
-      - "8080:8080"  # Map port 8080 of the host to port 8080 of the container to access Airflow UI
-    command: webserver
+      - "8080:8080" # Map port 8080 of the host to port 8080 of the container to access Airflow UI
+    command: api-server
 
-
-# This is the Airflow scheduler service. It monitors tasks and DAGs, triggering task instances once their dependencies are complete.
+  # This is the Airflow scheduler service. It monitors tasks and DAGs, triggering task instances once their dependencies are complete.
   airflow-scheduler:
     build:
       context: .
-      dockerfile: airflow/Dockerfile.airflow
+      dockerfile: airflow/Dockerfile
     user: root
     depends_on:
-      - airflow_postgres
+      airflow_postgres:
+        condition: service_healthy
+      airflow-webserver:
+        condition: service_healthy
+      init-airflow:
+        condition: service_completed_successfully
     networks:
       - elt_network
     extra_hosts:
-      - "host.docker.internal:host-gateway"  # This allows the container to access services running on the host machine using host.docker.internal
+      - "host.docker.internal:host-gateway" # This allows the container to access services running on the host machine using host.docker.internal
     volumes:
-      - ./airflow/dags: /opt/airflow/dags
-      - ./elt: /opt/airflow/elt  # Mount the elt directory to /opt/airflow/elt in the container so that Airflow DAGs can access the ELT scripts if needed.
-      - ./custom_postgres: /opt/dbt
-      - ~/.dbt: /root/.dbt  # Mount the host's ~/.dbt to /root/.dbt in the container so that dbt can access profiles.yml
-      - /var/run/docker.sock: /var/run/docker.sock  # This allows Airflow to communicate with the Docker daemon on the host machine to start other containers if needed.
-    environment: # Here we will put all the variables under Airflow Webserver section in the .env file
-      - LOAD_EX: ${LOAD_EX}
-      - EXECUTOR: ${EXECUTOR}
-      - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: ${AIRFLOW__DATABASE__SQL_ALCHEMY_CONN}
-      - AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW__CORE__FERNET_KEY}
-      - AIRFLOW__WEBSERVER_DEFAULT_USERNAME: ${AIRFLOW__WEBSERVER_DEFAULT_USERNAME}
-      - AIRFLOW__WEBSERVER_DEFAULT_PASSWORD: ${AIRFLOW__WEBSERVER_DEFAULT_PASSWORD}
-      - AIRFLOW__WWW_USER_USERNAME: ${AIRFLOW__WWW_USER_USERNAME}
-      - AIRFLOW__WWW_USER_PASSWORD: ${AIRFLOW__WWW_USER_PASSWORD}
-      - AIRFLOW__WEBSERVER_SECRET_KEY: ${AIRFLOW__WEBSERVER_SECRET_KEY}
-    ports:
-      - "8080:8080"  # Map port 8080 of the host to port 8080 of the container to access Airflow UI
+      - ./airflow/dags:/opt/airflow/dags
+      - ./airflow/logs:/opt/airflow/logs
+      - ./elt:/opt/airflow/elt # Mount the elt directory to /opt/airflow/elt in the container so that Airflow DAGs can access the ELT scripts if needed.
+      - ./custom_postgres:/opt/dbt
+      - ~/.dbt:/root/.dbt # Mount the host's ~/.dbt to /root/.dbt in the container so that dbt can access profiles.yml
+      - /var/run/docker.sock:/var/run/docker.sock # This allows Airflow to communicate with the Docker daemon on the host machine to start other containers if needed.
+    environment:
+      # Here we will put all the variables under Airflow Webserver section in the .env file
+      LOAD_EX: ${LOAD_EX}
+      EXECUTOR: ${EXECUTOR}
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: ${AIRFLOW__DATABASE__SQL_ALCHEMY_CONN}
+      AIRFLOW__CORE__AUTH_MANAGER: airflow.providers.fab.auth_manager.fab_auth_manager.FabAuthManager
+      AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW__CORE__FERNET_KEY}
+      AIRFLOW__CORE__SECRET_KEY: ${AIRFLOW__CORE__SECRET_KEY}
+      AIRFLOW__API__SECRET_KEY: ${AIRFLOW__API__SECRET_KEY}
+      AIRFLOW__WEBSERVER_DEFAULT_USERNAME: ${AIRFLOW__WEBSERVER_DEFAULT_USERNAME}
+      AIRFLOW__WEBSERVER_DEFAULT_PASSWORD: ${AIRFLOW__WEBSERVER_DEFAULT_PASSWORD}
+      AIRFLOW__WWW_USER_USERNAME: ${AIRFLOW__WWW_USER_USERNAME}
+      AIRFLOW__WWW_USER_PASSWORD: ${AIRFLOW__WWW_USER_PASSWORD}
+      AIRFLOW__WEBSERVER__SECRET_KEY: ${AIRFLOW__WEBSERVER__SECRET_KEY}
+      AIRFLOW__SCHEDULER__LOG_SERVER_HOST: ${AIRFLOW__SCHEDULER__LOG_SERVER_HOST}
+      AIRFLOW__SCHEDULER__LOG_SERVER_PORT: ${AIRFLOW__SCHEDULER__LOG_SERVER_PORT}
+      AIRFLOW__CORE__EXECUTION_API_SERVER_URL: ${AIRFLOW__CORE__EXECUTION_API_SERVER_URL}
+      AIRFLOW__API_AUTH__JWT_SECRET: ${AIRFLOW__API_AUTH__JWT_SECRET}
+      # Database credentials needed by ELT script
+      SRC_DB_NAME: ${SRC_DB_NAME}
+      SRC_DB_USER: ${SRC_DB_USER}
+      SRC_DB_PASS: ${SRC_DB_PASS}
+      DEST_DB_NAME: ${DEST_DB_NAME}
+      DEST_DB_USER: ${DEST_DB_USER}
+      DEST_DB_PASS: ${DEST_DB_PASS}
     command: scheduler
 
-# We do not need the following services when using Airflow to orchestrate the ELT process. These were in use when we were running the ELT and dbt steps manually without Airflow.
+  # Dedicated DAG processor introduced in Airflow 3 to offload parsing from the scheduler.
+  airflow-dag-processor:
+    build:
+      context: .
+      dockerfile: airflow/Dockerfile
+    user: root
+    depends_on:
+      airflow_postgres:
+        condition: service_healthy
+      airflow-webserver:
+        condition: service_healthy
+      init-airflow:
+        condition: service_completed_successfully
+    networks:
+      - elt_network
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ./airflow/dags:/opt/airflow/dags
+      - ./airflow/logs:/opt/airflow/logs
+      - ./elt:/opt/airflow/elt # Mount the elt directory to /opt/airflow/elt in the container so that Airflow DAGs can access the ELT scripts if needed.
+      - ./custom_postgres:/opt/dbt
+      - ~/.dbt:/root/.dbt # Mount the host's ~/.dbt to /root/.dbt in the container so that dbt can access profiles.yml
+      - /var/run/docker.sock:/var/run/docker.sock # This allows Airflow to communicate with the Docker daemon on the host machine to start other containers if needed.
+    environment:
+      LOAD_EX: ${LOAD_EX}
+      EXECUTOR: ${EXECUTOR}
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: ${AIRFLOW__DATABASE__SQL_ALCHEMY_CONN}
+      AIRFLOW__CORE__AUTH_MANAGER: airflow.providers.fab.auth_manager.fab_auth_manager.FabAuthManager
+      AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW__CORE__FERNET_KEY}
+      AIRFLOW__CORE__SECRET_KEY: ${AIRFLOW__CORE__SECRET_KEY}
+      AIRFLOW__API__SECRET_KEY: ${AIRFLOW__API__SECRET_KEY}
+      AIRFLOW__WEBSERVER_DEFAULT_USERNAME: ${AIRFLOW__WEBSERVER_DEFAULT_USERNAME}
+      AIRFLOW__WEBSERVER_DEFAULT_PASSWORD: ${AIRFLOW__WEBSERVER_DEFAULT_PASSWORD}
+      AIRFLOW__WWW_USER_USERNAME: ${AIRFLOW__WWW_USER_USERNAME}
+      AIRFLOW__WWW_USER_PASSWORD: ${AIRFLOW__WWW_USER_PASSWORD}
+      AIRFLOW__WEBSERVER__SECRET_KEY: ${AIRFLOW__WEBSERVER__SECRET_KEY}
+      AIRFLOW__SCHEDULER__LOG_SERVER_HOST: ${AIRFLOW__SCHEDULER__LOG_SERVER_HOST}
+      AIRFLOW__SCHEDULER__LOG_SERVER_PORT: ${AIRFLOW__SCHEDULER__LOG_SERVER_PORT}
+      AIRFLOW__CORE__EXECUTION_API_SERVER_URL: ${AIRFLOW__CORE__EXECUTION_API_SERVER_URL}
+      AIRFLOW__API_AUTH__JWT_SECRET: ${AIRFLOW__API_AUTH__JWT_SECRET}
+    command: dag-processor
+  # We do not need the following services when using Airflow to orchestrate the ELT process. These were in use when we were running the ELT and dbt steps manually without Airflow.
   # elt_script:
   #   build:
   #     context: ./ # Defines the build context, i.e., the root directory for the build. The COPY and ADD instructions in the Dockerfile are relative to this path. This path is resolved relative to the location of the docker-compose.yaml file.
@@ -177,7 +273,7 @@ services:
 
 networks:
   elt_network:
-    driver: bridge  # Other values are 'host', 'overlay', etc. Use 'host' for no isolation between host and container. Use 'bridge' for isolated networks. Use 'overlay' for multi-host networking (Docker Swarm).
+    driver: bridge # Other values are 'host', 'overlay', etc. Use 'host' for no isolation between host and container. Use 'bridge' for isolated networks. Use 'overlay' for multi-host networking (Docker Swarm).
 
 #volumes:
 #  pgdata_source: (the named volume for source Postgres data persistence would be defined here)
