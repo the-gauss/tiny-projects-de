@@ -1,6 +1,6 @@
-FROM apache/airflow:latest
+FROM apache/airflow:3.1.5
 
-RUN pip install apache-airflow-proviers-docker
+RUN pip install apache-airflow-providers-docker
 
 # We are using uv for all other services, but the `apache/airflow` image is a fully managed images that 
 # ships with Airflow and all its dependencies pre-installed. Using uv would mean using a uv managed Python image

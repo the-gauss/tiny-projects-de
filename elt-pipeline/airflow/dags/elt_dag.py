@@ -1,7 +1,7 @@
 from datetime import datetime, timedelta
 from airflow import DAG
 from docker.types import Mount
-from airflow.operators.python_operator import PythonOperator
+from airflow.operators.python import PythonOperator
 from airflow.operators.bash import BashOperator
 from airflow.providers.docker.operators.docker import DockerOperator
 import subprocess
@@ -58,7 +58,7 @@ t2 = DockerOperator(
         '--profiles-dir', 'root/.dbt',  # Path inside the container where profiles.yml is located
         '--project-dir', '/dbt',  # Path inside the container where dbt project is located
     ],
-    auto_remove=True,
+    auto_remove='success',
     docker_url='unix://var/run/docker.sock',  # Use the Docker socket to run the container
     network_mode='bridge',  # Use bridge network to allow communication between containers
     mounts=[
