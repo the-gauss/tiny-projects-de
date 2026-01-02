@@ -59,7 +59,7 @@ services:
       dockerfile: airflow/Dockerfile
     depends_on:
       airflow_postgres:
-        condition: service_healthy
+        condition: service_healthy # Ensure that the Postgres service is healthy before initializing Airflow
     networks:
       - elt_network
     environment:
@@ -184,7 +184,7 @@ services:
     build:
       context: .
       dockerfile: airflow/Dockerfile
-    user: root
+    user: root # Run as root to ensure proper permissions on mounted volumes
     depends_on:
       airflow_postgres:
         condition: service_healthy

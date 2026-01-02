@@ -1,6 +1,13 @@
 FROM apache/airflow:3.1.5
 
-RUN pip install apache-airflow-providers-docker
+# USER means the user that runs the commands in the Dockerfile as well as the default user for running the container
+USER airflow
+
+RUN pip install apache-airflow-providers-docker \
+    && pip install apache-airflow-providers-http \
+    && pip install apache-airflow-providers-airbyte 
+
+USER root
 
 # We are using uv for all other services, but the `apache/airflow` image is a fully managed images that 
 # ships with Airflow and all its dependencies pre-installed. Using uv would mean using a uv managed Python image
